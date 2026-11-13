@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111827">
+<title>Allô Dabou – Vérification chauffeur</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<style>
+:root{--bg:#111827;--card:#1f2937;--line:#374151;--txt:#f9fafb;--mut:#9ca3af;--acc:#facc15;--ok:#16a34a;--warn:#ea580c;--ko:#dc2626}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt);min-height:100vh;padding:env(safe-area-inset-top) 16px 24px}
+.wrap{max-width:480px;margin:0 auto}
+header{display:flex;align-items:center;justify-content:space-between;padding:16px 0}
+header h1{font-size:18px}header h1 span{color:var(--acc)}
+.who{font-size:12px;color:var(--mut);text-align:right}
+.who button{background:none;border:none;color:var(--acc);font-size:12px;cursor:pointer;margin-top:2px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:14px}
+label{font-size:13px;color:var(--mut);display:block;margin-bottom:6px}
+input{width:100%;padding:14px;border-radius:12px;border:1px solid var(--line);background:#0b1220;color:var(--txt);font-size:16px;letter-spacing:.5px}
+input:focus{outline:2px solid var(--acc);border-color:transparent}
+.btn{width:100%;padding:15px;border:none;border-radius:12px;background:var(--acc);color:#111;font-weight:700;font-size:16px;cursor:pointer;margin-top:12px}
+.btn.sec{background:transparent;color:var(--txt);border:1px solid var(--line)}
+.btn:disabled{opacity:.5}
+.err{color:#fca5a5;font-size:14px;margin-top:10px;min-height:18px}
+.hint{font-size:12px;color:var(--mut);margin-top:10px;line-height:1.4}
+.hidden{display:none!important}
+#videoBox{position:relative;border-radius:16px;overflow:hidden;background:#000;aspect-ratio:1/1;margin-bottom:12px}
+#video{width:100%;height:100%;object-fit:cover}
+.frame{position:absolute;inset:18%;border:3px solid var(--acc);border-radius:18px;box-shadow:0 0 0 999px rgba(0,0,0,.45)}
+.row{display:flex;gap:8px}.row input{flex:1}.row .btn{width:auto;margin:0;padding:0 18px}
+.status{border-radius:16px;padding:22px 16px;text-align:center;margin-bottom:14px}
+.status .big{font-size:28px;font-weight:800}
+.status .sub{font-size:14px;margin-top:6px;opacity:.95}
+.s-ok{background:var(--ok)}.s-warn{background:var(--warn)}.s-ko{background:var(--ko)}.s-unk{background:#4b5563}
+.id{display:flex;gap:14px;align-items:center;margin-bottom:12px}
+.photo{width:92px;height:112px;border-radius:12px;object-fit:cover;background:#0b1220;border:1px solid var(--line);flex-shrink:0}
+.id h2{font-size:20px;line-height:1.2}.id p{color:var(--mut);font-size:14px;margin-top:4px}
+dl{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;font-size:14px}
+dt{color:var(--mut)}dd{font-weight:600;text-align:right;word-break:break-word}
+.pub{font-size:12px;color:var(--mut);text-align:center;margin-top:10px}
+h3{font-size:13px;color:var(--mut);margin:18px 0 8px;text-transform:uppercase;letter-spacing:.6px}
+.hist{display:flex;align-items:center;gap:10px;font-size:14px;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}
+.dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.hist small{margin-left:auto;color:var(--mut)}
+.demo{background:#422006;color:#fde68a;font-size:12px;text-align:center;padding:6px;border-radius:8px;margin-bottom:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Allô <span>Dabou</span> · Contrôle</h1>
+    <div class="who hidden" id="who"><div id="whoName"></div><button onclick="logout()">Se déconnecter</button></div>
+  </header>
+  <div class="demo hidden" id="demoBanner">MODE DÉMO – données fictives (code : DEMO)</div>
+
+  <!-- CONNEXION -->
+  <section id="viewLogin" class="card hidden">
+    <label for="code">Code d'accès agent</label>
+    <input id="code" type="password" autocomplete="off" placeholder="Saisissez votre code">
+    <button class="btn" id="btnLogin" onclick="login()">Accéder au contrôle</button>
+    <div class="err" id="loginErr"></div>
+    <p class="hint">Accès réservé à la police, à la gendarmerie et aux autorités habilitées. Chaque contrôle est enregistré.</p>
+  </section>
+
+  <!-- SCAN -->
+  <section id="viewScan" class="hidden">
+    <div id="videoBox" class="hidden"><video id="video" playsinline muted></video><div class="frame"></div></div>
+    <button class="btn" id="btnScan" onclick="startScan()">📷 Scanner un QR code</button>
+    <div class="err" id="scanErr"></div>
+    <div class="card" style="margin-top:12px">
+      <label for="manual">Ou saisir le numéro du badge</label>
+      <div class="row"><input id="manual" placeholder="Ex : ADB-0001" autocapitalize="characters"><button class="btn" onclick="manualCheck()">OK</button></div>
+    </div>
+    <h3>Derniers contrôles</h3>
+    <div id="history"></div>
+  </section>
+
+  <!-- RÉSULTAT -->
+  <section id="viewResult" class="hidden">
+    <div id="statusBox" class="status"></div>
+    <div class="card" id="identity"></div>
+    <button class="btn" onclick="backToScan()">Scanner un autre chauffeur</button>
+  </section>
+</div>
+
+<script>
+/* ================= CONFIGURATION ================= */
+const FIREBASE_CONFIG = {
+  apiKey: "VOTRE_API_KEY",
+  authDomain: "VOTRE_PROJET.firebaseapp.com",
+  projectId: "VOTRE_PROJET",
+  appId: "VOTRE_APP_ID"
+};
+const COL = {
+  drivers: "drivers",     // collection des chauffeurs (doc ID = identifiant du badge)
+  agents: "agents",       // doc ID = code d'accès ; champs : nom, corps, actif (bool)
+  controls: "controles"   // journal des contrôles (écrit automatiquement)
+};
+/* Champs attendus dans un document chauffeur (adaptez les noms ici si besoin) */
+const F = {
+  nom:"nom", prenoms:"prenoms", photo:"photoURL", badge:"badgeNumero",
+  type:"typeBadge",          // "permis" | "provisoire"
+  expiration:"dateExpiration", // fin de validité du badge provisoire (ISO ou Timestamp)
+  permisNumero:"permisNumero", permisExpiration:"permisExpiration",
+  suspendu:"suspendu",       // true/false
+  telephone:"telephone", plaque:"plaqueMoto", quartier:"quartier"
+};
+/* ================================================== */
+
+const DEMO = FIREBASE_CONFIG.apiKey.startsWith("VOTRE_");
+let db = null, session = null, stream = null, scanning = false, lastRaw = "";
+const $ = id => document.getElementById(id);
+const show = id => ["viewLogin","viewScan","viewResult"].forEach(v => $(v).classList.toggle("hidden", v !== id));
+
+const day = 86400000, iso = d => new Date(Date.now()+d*day).toISOString();
+const DEMO_DB = {
+  "ADB-0001":{nom:"KOUASSI",prenoms:"Jean-Marc",typeBadge:"permis",permisNumero:"CI-2291-04",permisExpiration:iso(900),badgeNumero:"ADB-0001",plaqueMoto:"1234 AB 01",telephone:"+225 07 00 00 00 01",quartier:"Centre"},
+  "ADB-0002":{nom:"YAO",prenoms:"Serge",typeBadge:"provisoire",dateExpiration:iso(41),badgeNumero:"ADB-0002",plaqueMoto:"5678 CD 01",telephone:"+225 05 00 00 00 02",quartier:"Dabou-Nord"},
+  "ADB-0003":{nom:"TRAORE",prenoms:"Ibrahim",typeBadge:"provisoire",dateExpiration:iso(-6),badgeNumero:"ADB-0003",plaqueMoto:"9012 EF 01",telephone:"+225 01 00 00 00 03",quartier:"Gare"}
+};
+
+function toDate(v){ if(!v) return null; if(v.toDate) return v.toDate(); const d=new Date(v); return isNaN(d)?null:d; }
+const fmt = d => d ? d.toLocaleDateString("fr-FR",{day:"2-digit",month:"2-digit",year:"numeric"}) : "—";
+const esc = s => String(s ?? "—").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+/* ---------- Initialisation ---------- */
+(function init(){
+  if(DEMO){ $("demoBanner").classList.remove("hidden"); }
+  else {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    db = firebase.firestore();
+    firebase.auth().signInAnonymously().catch(e=>console.warn("Auth anonyme :",e.message));
+  }
+  try{ session = JSON.parse(sessionStorage.getItem("agent")||"null"); }catch(e){}
+  const urlId = new URLSearchParams(location.search).get("v");
+  if(session){ enter(); } else { show("viewLogin"); }
+  if(urlId) verify(urlId);
+})();
+
+/* ---------- Connexion par code ---------- */
+async function login(){
+  const code = $("code").value.trim();
+  $("loginErr").textContent = "";
+  if(!code){ $("loginErr").textContent = "Saisissez votre code."; return; }
+  $("btnLogin").disabled = true;
+  try{
+    let agent = null;
+    if(DEMO){ if(code.toUpperCase()==="DEMO") agent = {nom:"Agent démo",corps:"Police"}; }
+    else {
+      const snap = await db.collection(COL.agents).doc(code).get();
+      if(snap.exists && snap.data().actif !== false) agent = snap.data();
+    }
+    if(!agent){ $("loginErr").textContent = "Code invalide ou désactivé."; return; }
+    session = {code, nom: agent.nom || "Agent", corps: agent.corps || ""};
+    sessionStorage.setItem("agent", JSON.stringify(session));
+    $("code").value = "";
+    enter();
+  }catch(e){ $("loginErr").textContent = "Connexion impossible. Vérifiez le réseau."; }
+  finally{ $("btnLogin").disabled = false; }
+}
+function enter(){
+  $("who").classList.remove("hidden");
+  $("whoName").textContent = session.nom + (session.corps ? " · "+session.corps : "");
+  show("viewScan"); renderHistory();
+}
+function logout(){
+  stopScan(); sessionStorage.removeItem("agent"); session = null;
+  $("who").classList.add("hidden"); show("viewLogin");
+}
+
+/* ---------- Scan QR ---------- */
+function extractId(raw){
+  raw = String(raw).trim();
+  try{ const u = new URL(raw); const q = u.searchParams.get("v") || u.searchParams.get("id"); if(q) return q; return u.pathname.split("/").filter(Boolean).pop(); }
+  catch(e){ return raw; }
+}
+async function startScan(){
+  $("scanErr").textContent = "";
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}});
+  }catch(e){ $("scanErr").textContent = "Caméra inaccessible. Autorisez-la ou saisissez le numéro du badge."; return; }
+  const v = $("video"); v.srcObject = stream; await v.play();
+  $("videoBox").classList.remove("hidden"); $("btnScan").classList.add("hidden");
+  scanning = true; requestAnimationFrame(tick);
+}
+const cv = document.createElement("canvas"), cx = cv.getContext("2d",{willReadFrequently:true});
+function tick(){
+  if(!scanning) return;
+  const v = $("video");
+  if(v.readyState === v.HAVE_ENOUGH_DATA){
+    cv.width = v.videoWidth; cv.height = v.videoHeight;
+    cx.drawImage(v,0,0,cv.width,cv.height);
+    const img = cx.getImageData(0,0,cv.width,cv.height);
+    const res = window.jsQR && jsQR(img.data, img.width, img.height, {inversionAttempts:"dontInvert"});
+    if(res && res.data && res.data !== lastRaw){ lastRaw = res.data; stopScan(); if(navigator.vibrate) navigator.vibrate(80); verify(extractId(res.data)); return; }
+  }
+  requestAnimationFrame(tick);
+}
+function stopScan(){
+  scanning = false;
+  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream = null; }
+  $("videoBox").classList.add("hidden"); $("btnScan").classList.remove("hidden");
+}
+function manualCheck(){ const v=$("manual").value.trim().toUpperCase(); if(v){ verify(v); $("manual").value=""; } }
+function backToScan(){ lastRaw=""; history.replaceState(null,"",location.pathname); session ? show("viewScan") : show("viewLogin"); renderHistory(); }
+
+/* ---------- Vérification ---------- */
+async function fetchDriver(id){
+  if(DEMO) return DEMO_DB[id] || null;
+  const snap = await db.collection(COL.drivers).doc(id).get();
+  return snap.exists ? snap.data() : null;
+}
+function computeStatus(d){
+  const now = new Date();
+  if(d[F.suspendu]) return {k:"ko", titre:"SUSPENDU", sous:"Ce badge a été suspendu."};
+  const type = d[F.type];
+  if(type === "permis"){
+    const pe = toDate(d[F.permisExpiration]);
+    if(pe && pe < now) return {k:"ko", titre:"PERMIS EXPIRÉ", sous:"Permis expiré le "+fmt(pe)};
+    return {k:"ok", titre:"VALIDE", sous:"Titulaire d'un permis"+(pe?" valable jusqu'au "+fmt(pe):"")};
+  }
+  const ex = toDate(d[F.expiration]);
+  if(!ex) return {k:"unk", titre:"STATUT INCONNU", sous:"Date de validité manquante."};
+  if(ex < now) return {k:"ko", titre:"EXPIRÉ", sous:"Badge provisoire expiré le "+fmt(ex)};
+  const left = Math.ceil((ex - now)/day);
+  return {k:"warn", titre:"PROVISOIRE", sous:"Valable jusqu'au "+fmt(ex)+" ("+left+" jour"+(left>1?"s":"")+") – permis à régulariser"};
+}
+async function verify(id){
+  id = String(id).trim();
+  show("viewResult");
+  $("statusBox").className = "status s-unk";
+  $("statusBox").innerHTML = '<div class="big">Vérification…</div>';
+  $("identity").innerHTML = "";
+  let d = null, st;
+  try{ d = await fetchDriver(id); }
+  catch(e){ st = {k:"unk", titre:"ERREUR RÉSEAU", sous:"Impossible de joindre la base. Réessayez."}; }
+  if(!st) st = d ? computeStatus(d) : {k:"ko", titre:"BADGE INCONNU", sous:"Aucun chauffeur enregistré pour « "+id+" »."};
+  $("statusBox").className = "status s-"+st.k;
+  $("statusBox").innerHTML = '<div class="big">'+esc(st.titre)+'</div><div class="sub">'+esc(st.sous)+'</div>';
+  if(d){
+    const full = !!session;
+    const photo = d[F.photo] ? '<img class="photo" src="'+esc(d[F.photo])+'" alt="Photo">' : '<div class="photo"></div>';
+    let html = '<div class="id">'+photo+'<div><h2>'+esc(d[F.prenoms])+' '+esc(d[F.nom])+'</h2><p>Badge '+esc(d[F.badge]||id)+'</p></div></div>';
+    if(full){
+      html += '<dl>'
+        +'<dt>Type de badge</dt><dd>'+(d[F.type]==="permis"?"Permis":"Provisoire (3 mois)")+'</dd>'
+        +'<dt>Permis n°</dt><dd>'+esc(d[F.permisNumero]||"Non fourni")+'</dd>'
+        +'<dt>Fin de validité</dt><dd>'+fmt(toDate(d[F.type]==="permis"?d[F.permisExpiration]:d[F.expiration]))+'</dd>'
+        +'<dt>Plaque moto</dt><dd>'+esc(d[F.plaque])+'</dd>'
+        +'<dt>Quartier</dt><dd>'+esc(d[F.quartier])+'</dd>'
+        +'<dt>Téléphone</dt><dd>'+esc(d[F.telephone])+'</dd></dl>';
+    } else {
+      html += '<p class="pub">Connectez-vous avec un code agent pour voir la fiche complète.</p>';
+    }
+    $("identity").innerHTML = html;
+    $("identity").classList.remove("hidden");
+  } else { $("identity").classList.add("hidden"); }
+  logControl(id, st, d);
+}
+
+/* ---------- Journal & historique ---------- */
+function logControl(id, st, d){
+  const nom = d ? ((d[F.prenoms]||"")+" "+(d[F.nom]||"")).trim() : "Inconnu";
+  const h = JSON.parse(localStorage.getItem("hist")||"[]");
+  h.unshift({id, nom, k:st.k, t:Date.now()});
+  localStorage.setItem("hist", JSON.stringify(h.slice(0,8)));
+  if(!DEMO && session){
+    db.collection(COL.controls).add({
+      badge:id, statut:st.titre, agentCode:session.code, agent:session.nom, corps:session.corps,
+      date:firebase.firestore.FieldValue.serverTimestamp()
+    }).catch(()=>{});
+  }
+}
+function renderHistory(){
+  const h = JSON.parse(localStorage.getItem("hist")||"[]");
+  const col = {ok:"var(--ok)",warn:"var(--warn)",ko:"var(--ko)",unk:"#6b7280"};
+  $("history").innerHTML = h.length ? h.map(x=>'<div class="hist" onclick="verify(\''+esc(x.id)+'\')"><span class="dot" style="background:'+col[x.k]+'"></span>'+esc(x.nom)+'<small>'+new Date(x.t).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})+'</small></div>').join("") : '<p class="hint">Aucun contrôle pour le moment.</p>';
+}
+$("code").addEventListener("keydown",e=>{ if(e.key==="Enter") login(); });
+$("manual").addEventListener("keydown",e=>{ if(e.key==="Enter") manualCheck(); });
+</script>
+</body>
+</html>

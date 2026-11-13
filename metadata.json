@@ -1,0 +1,6 @@
+{
+  "name": "Allô Dabou · Contrôle",
+  "description": "Application PWA de vérification des badges chauffeurs par scan QR pour la police, la gendarmerie et les autorités habilitées.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

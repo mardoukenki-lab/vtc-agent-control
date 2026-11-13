@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Allô Dabou – Recommandations techniques : application de vérification des chauffeurs</title>
+<style>
+:root{--ink:#111827;--mut:#6b7280;--line:#e5e7eb;--acc:#ca8a04;--bg:#f9fafb;--red:#b91c1c;--grn:#15803d;--amb:#b45309}
+*{box-sizing:border-box}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--ink);background:#fff;line-height:1.55;margin:0}
+.page{max-width:900px;margin:0 auto;padding:32px 22px 80px}
+h1{font-size:28px;line-height:1.2;margin:0 0 6px}
+h2{font-size:21px;margin:42px 0 10px;padding-top:14px;border-top:3px solid var(--ink)}
+h3{font-size:16px;margin:24px 0 6px}
+p{margin:8px 0}
+.sub{color:var(--mut);font-size:14px}
+.box{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:14px 0}
+.box.warn{background:#fef2f2;border-color:#fecaca}
+.box.info{background:#fffbeb;border-color:#fde68a}
+.tag{display:inline-block;font-size:11px;font-weight:700;border-radius:5px;padding:2px 7px;margin-right:4px;vertical-align:middle;letter-spacing:.3px}
+.p0{background:#fee2e2;color:var(--red)}.p1{background:#ffedd5;color:var(--amb)}.p2{background:#e0e7ff;color:#3730a3}
+.src{background:#dcfce7;color:var(--grn)}.jug{background:#fef3c7;color:var(--amb)}
+table{border-collapse:collapse;width:100%;font-size:14px;margin:12px 0}
+th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+th{background:var(--bg)}
+pre{background:#0b1220;color:#e5e7eb;border-radius:10px;padding:14px;overflow:auto;font-size:12.5px;line-height:1.5}
+code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.92em}
+p code,li code,td code{background:#f3f4f6;padding:1px 5px;border-radius:4px}
+ul,ol{padding-left:22px}li{margin:4px 0}
+.toc a{color:var(--ink)}.toc li{margin:2px 0}
+.flow{display:flex;flex-wrap:wrap;gap:8px;align-items:stretch;margin:14px 0}
+.node{flex:1 1 150px;border:2px solid var(--ink);border-radius:10px;padding:10px;font-size:13px;background:#fff}
+.node b{display:block;font-size:13px;margin-bottom:3px}
+.node.srv{background:#111827;color:#fff;border-color:#111827}
+.arrow{align-self:center;font-size:20px;color:var(--mut)}
+sup a{color:var(--acc);text-decoration:none;font-weight:700}
+.refs li{font-size:13px;word-break:break-all}
+footer{margin-top:40px;font-size:12px;color:var(--mut)}
+@media print{.page{padding:0}h2{break-after:avoid}pre,.box,table{break-inside:avoid}}
+</style>
+</head>
+<body>
+<div class="page">
+
+<h1>Application de vérification des chauffeurs : recommandations techniques</h1>
+<p class="sub">Projet Allô Dabou / GNANGO · Document du 13/11/2026 · Portée : page de vérification (scan du QR par la police, la gendarmerie et les autorités), avec ses dépendances (enrôlement, base de données, badges).</p>
+
+<div class="box">
+<b>Comment lire ce document.</b> Chaque recommandation porte une priorité
+(<span class="tag p0">P0</span> avant tout usage avec de vraies données,
+<span class="tag p1">P1</span> avant le lancement,
+<span class="tag p2">P2</span> après le lancement) et un niveau de preuve :
+<span class="tag src">SOURCÉ</span> = appuyé par une source citée en fin de document <i>(consultées le 13/11/2026, à revérifier avant déploiement car la documentation évolue)</i> ;
+<span class="tag jug">JUGEMENT</span> = recommandation d'ingénierie de ma part, non démontrée par une source ci-dessous. Les points que je ne peux pas confirmer sont regroupés en section 8.
+Les extraits de code n'ont <b>pas été exécutés ni testés</b> : ce sont des squelettes à adapter.
+</div>
+
+<div class="toc box">
+<b>Sommaire</b>
+<ol>
+<li><a href="#s1">Synthèse</a></li>
+<li><a href="#s2">Diagnostic de la version actuelle (3 pages HTML)</a></li>
+<li><a href="#s3">Architecture cible</a></li>
+<li><a href="#s4">Recommandations détaillées</a></li>
+<li><a href="#s5">Modèle de données</a></li>
+<li><a href="#s6">Extraits de code</a></li>
+<li><a href="#s7">Plan de mise en œuvre et tests</a></li>
+<li><a href="#s8">Ce que je ne peux pas confirmer</a></li>
+<li><a href="#s9">Sources</a></li>
+</ol>
+</div>
+
+<h2 id="s1">1. Synthèse</h2>
+<p>La version actuelle est un prototype fonctionnel : elle affiche le bon statut (vert, orange, rouge) pour un badge donné. Elle n'est <b>pas</b> prête pour de vraies données personnelles, car la protection repose sur le navigateur. Trois changements concentrent l'essentiel du gain de sécurité :</p>
+<ol>
+<li><b>Remplacer l'identifiant du QR</b> (aujourd'hui <code>ADB-0001</code>, séquentiel) par un jeton aléatoire non devinable (§4.1).</li>
+<li><b>Fermer Firestore au navigateur</b> et faire passer toute lecture par une Cloud Function qui vérifie qui appelle et ne renvoie que le strict nécessaire (§4.2 à 4.5).</li>
+<li><b>Calculer le statut sur le serveur</b>, avec l'horloge du serveur (§4.6).</li>
+</ol>
+<p>En parallèle, le traitement doit être mis en conformité avec la loi ivoirienne sur les données personnelles (§4.11), car l'application stocke identité, photo, téléphone et numéro de permis.</p>
+
+<h2 id="s2">2. Diagnostic de la version actuelle</h2>
+<table>
+<tr><th>#</th><th>Constat</th><th>Risque</th><th>Reco.</th></tr>
+<tr><td>D1</td><td>Le QR contient le n° de badge séquentiel (<code>ADB-0001</code>, <code>-0002</code>…). <b>Correction d'une affirmation antérieure :</b> j'avais annoncé un identifiant aléatoire ; le code livré utilise le numéro d'affichage.</td><td>Quiconque connaît le format peut tester <code>0001</code>, <code>0002</code>… et lire des fiches (énumération).</td><td>§4.1</td></tr>
+<tr><td>D2</td><td>La page lit directement Firestore depuis le navigateur (<code>drivers/{id}</code>, <code>agents/{code}</code>).</td><td>Les règles Firestore deviennent la seule barrière. Un code agent n'est qu'un nom de document : tout utilisateur connecté (même anonyme) qui connaît la structure peut lire la fiche complète.</td><td>§4.2 à 4.4</td></tr>
+<tr><td>D3</td><td>Le code d'accès est vérifié côté navigateur, sans limite de tentatives, partagé par corps.</td><td>Force brute possible ; pas de traçabilité par personne ; pas de révocation immédiate.</td><td>§4.3, 4.4</td></tr>
+<tr><td>D4</td><td>Le statut (valide, provisoire, expiré) est calculé avec l'horloge du téléphone.</td><td>Une heure de téléphone erronée ou modifiée fausse le résultat.</td><td>§4.6</td></tr>
+<tr><td>D5</td><td>La même fiche (photo, téléphone, permis) est visible par tout porteur du lien si le jeu de règles est ouvert.</td><td>Fuite de données personnelles.</td><td>§4.5</td></tr>
+<tr><td>D6</td><td>Bibliothèques chargées depuis des CDN sans empreinte d'intégrité.</td><td>Un CDN compromis exécuterait du code dans une page manipulant des données sensibles.</td><td>§4.9</td></tr>
+<tr><td>D7</td><td>Aucune limitation de débit, aucun journal côté serveur fiable, aucune démarche de conformité.</td><td>Abus non détectables ; risque juridique.</td><td>§4.7, 4.8, 4.11</td></tr>
+</table>
+
+<h2 id="s3">3. Architecture cible</h2>
+<div class="flow">
+ <div class="node"><b>Badge</b>QR = adresse + jeton aléatoire (dans le fragment <code>#t=</code>)</div><div class="arrow">→</div>
+ <div class="node"><b>Web app (PWA, HTTPS)</b>Scan caméra, affichage du statut. Aucun accès direct à la base.</div><div class="arrow">→</div>
+ <div class="node srv"><b>Cloud Functions</b><code>verifyBadge</code>, <code>agentLogin</code>, <code>enrollDriver</code>. App Check, rôle, limitation de débit, journal.</div><div class="arrow">→</div>
+ <div class="node srv"><b>Firestore (règles : tout refusé)</b>Lu et écrit uniquement par les fonctions (Admin SDK).</div>
+</div>
+<p>Trois niveaux d'accès, tous servis par la même fonction <code>verifyBadge</code> :</p>
+<table>
+<tr><th>Rôle</th><th>Comment il est identifié</th><th>Ce qu'il voit (proposition)</th></tr>
+<tr><td><b>Public</b> (client, passant)</td><td>Non connecté</td><td>Statut, prénom, photo, n° de badge d'affichage</td></tr>
+<tr><td><b>Agent</b> (police, gendarmerie)</td><td>Code individuel → jeton de session</td><td>+ nom, type de badge, fin de validité, plaque, n° de permis masqué</td></tr>
+<tr><td><b>Admin</b> (équipe Allô Dabou)</td><td>Compte Firebase avec rôle <code>admin</code></td><td>+ téléphone, quartier, historique, actions de gestion</td></tr>
+</table>
+<p class="sub">Les champs exacts par rôle sont une proposition de minimisation <span class="tag jug">JUGEMENT</span> : à valider avec la police et la gendarmerie selon ce dont elles ont réellement besoin pour un contrôle.</p>
+
+<h2 id="s4">4. Recommandations détaillées</h2>
+
+<h3>4.1 Jeton aléatoire dans le QR <span class="tag p0">P0</span><span class="tag src">SOURCÉ</span><span class="tag jug">JUGEMENT</span></h3>
+<ul>
+<li>L'OWASP décrit l'IDOR : un attaquant accède à des objets en manipulant l'identifiant d'une URL, et recommande des identifiants complexes en défense en profondeur, <b>mais précise que les contrôles d'accès restent indispensables</b>, même avec des identifiants complexes<sup><a href="#r6">[6]</a></sup>. L'OWASP déconseille aussi de « chiffrer » les identifiants<sup><a href="#r6">[6]</a></sup>.</li>
+<li>Générer pour chaque badge un jeton de 16 octets aléatoires (22 caractères en base64url) avec un générateur cryptographique côté serveur. Le n° <code>ADB-xxxx</code> reste un numéro <b>d'affichage</b>, jamais utilisé pour interroger la base. <span class="tag jug">JUGEMENT</span></li>
+<li>Stocker uniquement l'empreinte SHA-256 du jeton en base (collection <code>badgeTokens</code>), de sorte qu'une fuite de base ne livre pas de QR utilisables. <span class="tag jug">JUGEMENT</span></li>
+<li>Placer le jeton dans le <b>fragment</b> de l'adresse (<code>https://…/#t=JETON</code>) : le fragment n'est pas envoyé au serveur d'hébergement, donc absent de ses journaux. La page le lit, appelle la fonction, puis l'efface avec <code>history.replaceState</code>. <span class="tag jug">JUGEMENT</span></li>
+<li>Perte ou vol du badge : révoquer le jeton (<code>revoque: true</code>) et en émettre un nouveau ; le QR imprimé ancien ne fonctionne plus. <span class="tag jug">JUGEMENT</span></li>
+<li>Saisie manuelle de secours (caméra refusée) : ne pas réutiliser le jeton de 22 caractères. Prévoir un <b>code court</b> (8 caractères en base32), réservé aux agents connectés, avec limitation de débit stricte (§4.7). Un numéro court peut s'énumérer ; le débit limité réduit ce risque sans l'annuler. <span class="tag jug">JUGEMENT</span></li>
+</ul>
+
+<h3>4.2 Fermer Firestore au navigateur <span class="tag p0">P0</span><span class="tag src">SOURCÉ</span></h3>
+<ul>
+<li>Les règles Firestore peuvent s'appuyer sur <code>request.auth</code> et sur des attributs personnalisés (<code>auth.token</code>) ; la documentation recommande de <b>limiter l'accès en écriture au-delà de la simple condition « connecté »</b><sup><a href="#r2">[2]</a></sup>. Une session anonyme est précisément une session « connectée » : elle ne prouve rien.</li>
+<li>Règle proposée : tout refuser aux clients (extrait §6.1). Les Cloud Functions utilisent l'Admin SDK, qui contourne les règles : la documentation Firestore l'indique par une note citée dans une discussion technique (« The server client libraries bypass all Cloud Firestore Security Rules »)<sup><a href="#r12">[12]</a></sup>. Source secondaire : à confirmer dans la documentation officielle.</li>
+<li>Conséquence : la page de vérification et la page d'enrôlement ne doivent plus appeler <code>db.collection(...)</code> mais <code>httpsCallable(...)</code>.</li>
+</ul>
+
+<h3>4.3 Authentification des agents <span class="tag p0">P0</span><span class="tag src">SOURCÉ</span><span class="tag jug">JUGEMENT</span></h3>
+<ul>
+<li>Un <b>code par personne</b> (et non un code par corps) : traçabilité, révocation individuelle, expiration. <span class="tag jug">JUGEMENT</span></li>
+<li>Le code est échangé contre une session via la fonction <code>agentLogin</code>. Firebase prévoit ce schéma : un point d'accès serveur qui reçoit des identifiants et renvoie un jeton personnalisé (JWT signé), que le client utilise avec <code>signInWithCustomToken()</code> ; le jeton personnalisé peut porter des revendications supplémentaires, disponibles ensuite dans <code>request.auth</code><sup><a href="#r4">[4]</a></sup>. Ce jeton expire après une heure<sup><a href="#r4">[4]</a></sup>.</li>
+<li>Stocker uniquement l'<b>empreinte</b> des codes (collection <code>agentCodes</code>), avec <code>actif</code>, <code>expireLe</code>, <code>role</code>, <code>corps</code>. Codes d'au moins 10 à 12 caractères aléatoires : un code court se devine. <span class="tag jug">JUGEMENT</span></li>
+<li>Révocation immédiate : <code>verifyBadge</code> relit <code>agents/{uid}.actif</code> à chaque appel (une lecture) ; désactiver un agent coupe son accès sans attendre l'expiration d'un jeton. <span class="tag jug">JUGEMENT</span></li>
+<li>Comptes administrateurs : vrais comptes Firebase Auth, avec la revendication <code>role: "admin"</code> posée <b>uniquement</b> depuis un environnement serveur privilégié avec l'Admin SDK (<code>setCustomUserClaims</code>) ; la charge utile des revendications ne doit pas dépasser 1000 octets ; les nouvelles revendications arrivent au client au prochain jeton émis<sup><a href="#r3">[3]</a></sup>. Une authentification à deux facteurs pour les admins est à envisager : <i>je n'ai pas vérifié sa disponibilité exacte dans votre configuration</i>.</li>
+</ul>
+
+<h3>4.4 App Check sur les fonctions <span class="tag p1">P1</span><span class="tag src">SOURCÉ</span></h3>
+<ul>
+<li>L'option <code>enforceAppCheck: true</code> d'une fonction appelable rejette les requêtes sans jeton App Check valide ; il faut <code>firebase-functions</code> ≥ 4.0.0 pour Node.js<sup><a href="#r1">[1]</a></sup>. La documentation invite à comprendre l'effet sur les utilisateurs <i>avant</i> d'activer l'application stricte<sup><a href="#r1">[1]</a></sup> : commencer en mode surveillance.</li>
+<li>Protection contre le rejeu (bêta) : <code>consumeAppCheckToken: true</code> ; elle ne prend en charge que le SDK Node.js, ajoute un aller-retour réseau (donc de la latence) et n'est en général activée que sur les points sensibles<sup><a href="#r1">[1]</a></sup>. Pour <code>agentLogin</code> et <code>enrollDriver</code> : oui ; pour <code>verifyBadge</code> : à décider selon la latence mesurée sur le réseau mobile local.</li>
+<li>App Check réduit l'usage par des programmes étrangers à votre application ; il ne remplace ni l'authentification ni les contrôles d'accès. <span class="tag jug">JUGEMENT</span></li>
+</ul>
+
+<h3>4.5 Réponses minimisées par rôle <span class="tag p0">P0</span><span class="tag jug">JUGEMENT</span></h3>
+<ul>
+<li>La fonction décide du contenu, jamais le navigateur (tableau §3). Le téléphone et le quartier ne sortent que pour un admin.</li>
+<li>Le numéro de permis est masqué pour un agent (par exemple les 3 derniers caractères). À valider avec les autorités.</li>
+<li>La photo et le prénom sont déjà visibles sur le badge physique ; les exposer au public n'ajoute pas d'information sensible et permet de détecter un faux badge (photo qui ne correspond pas au conducteur). Le jeton non devinable empêche la collecte en masse.</li>
+<li>Pour un jeton inconnu ou révoqué : message neutre « Badge inconnu », sans distinguer les deux cas.</li>
+</ul>
+
+<h3>4.6 Statut calculé sur le serveur <span class="tag p0">P0</span><span class="tag jug">JUGEMENT</span></h3>
+<ul>
+<li>Remplacer le calcul dans le navigateur (horloge du téléphone) par un calcul dans <code>verifyBadge</code> avec l'heure du serveur. La page ne fait qu'afficher <code>statut.code</code> et <code>statut.couleur</code>.</li>
+<li>Règle métier à figer par écrit : badge provisoire = émission + 3 mois ; passage à « Permis » uniquement après saisie d'un numéro et d'une fin de validité de permis par un admin ; suspension prioritaire sur tout autre état.</li>
+<li>Définir le fuseau et la règle de fin de journée (le badge est-il valable jusqu'à 23 h 59 le dernier jour ?) pour éviter les litiges lors d'un contrôle.</li>
+</ul>
+
+<h3>4.7 Limitation de débit et détection d'abus <span class="tag p1">P1</span><span class="tag jug">JUGEMENT</span></h3>
+<ul>
+<li>Compteurs par agent et par adresse IP (échecs de connexion, jetons inconnus), avec blocage temporaire au-delà d'un seuil. Seuils à fixer après quelques semaines de données réelles.</li>
+<li>Journaliser aussi les tentatives sur jeton inconnu : c'est le signal d'une énumération.</li>
+<li><i>Je ne peux pas confirmer</i> qu'un mécanisme natif de Firebase suffise pour la limitation de débit des fonctions appelables ; le plus sûr est un compteur à vous dans Firestore (transaction) ou un service dédié, à étudier.</li>
+</ul>
+
+<h3>4.8 Journal d'audit <span class="tag p1">P1</span><span class="tag jug">JUGEMENT</span></h3>
+<ul>
+<li>Pour chaque contrôle : date serveur, <code>agentId</code>, rôle, identifiant interne du chauffeur, statut renvoyé. Écrit uniquement par la fonction.</li>
+<li>Ne pas enregistrer la position GPS de l'agent sans base légale et information préalable (voir §4.11).</li>
+<li>Fixer une durée de conservation du journal et une procédure de consultation (qui peut le lire, sur demande de qui). La durée est une décision juridique : voir §8.</li>
+</ul>
+
+<h3>4.9 Front : HTTPS, caméra, en-têtes, bibliothèques <span class="tag p1">P1</span><span class="tag src">SOURCÉ</span><span class="tag jug">JUGEMENT</span></h3>
+<ul>
+<li><b>HTTPS obligatoire pour le scan.</b> <code>getUserMedia()</code> n'est disponible que dans un contexte sécurisé (HTTPS, ou <code>localhost</code>, ou <code>file:///</code>) ; en contexte non sécurisé, <code>navigator.mediaDevices</code> est indéfini et la caméra est inaccessible ; l'autorisation de l'utilisateur est toujours demandée<sup><a href="#r5">[5]</a></sup>. Un hébergement sans HTTPS rend donc le scan impossible.</li>
+<li><b>Politique d'autorisations.</b> L'en-tête <code>Permissions-Policy: camera=(self)</code> limite la caméra à votre propre origine<sup><a href="#r5">[5]</a></sup>.</li>
+<li><b>Autres en-têtes</b> (extrait §6.4) : HSTS, <code>X-Content-Type-Options</code>, <code>Referrer-Policy: no-referrer</code>, <code>frame-ancestors 'none'</code> contre l'habillage dans une autre page, et une politique CSP stricte. <span class="tag jug">JUGEMENT</span></li>
+<li><b>Bibliothèques</b> (Firebase, jsQR, qrcode-generator) : les héberger vous-même avec versions figées, ou ajouter une empreinte d'intégrité (<code>integrity</code>) si elles restent sur un CDN. Réduit le risque D6. <span class="tag jug">JUGEMENT</span></li>
+<li><b>Session agent</b> : conserver la session en mémoire ou <code>sessionStorage</code>, déconnexion automatique après une période d'inactivité (par exemple 15 minutes, à ajuster), bouton de déconnexion visible, car un téléphone peut être prêté ou perdu.</li>
+<li><b>Affichage</b> : statut en grand, couleur <b>et</b> texte (ne pas se reposer sur la couleur seule, utile en plein soleil et pour le daltonisme), contraste élevé, boutons larges.</li>
+</ul>
+
+<h3>4.10 Réseau, hors ligne et scanner <span class="tag p2">P2</span><span class="tag jug">JUGEMENT</span></h3>
+<ul>
+<li>PWA avec service worker qui met en cache la <b>coquille</b> de l'application (HTML, CSS, JS), mais <b>jamais</b> les réponses contenant des données personnelles. Hors ligne : afficher clairement « Pas de connexion : contrôle impossible » plutôt qu'un ancien résultat.</li>
+<li>Option avancée à étudier : QR contenant une charge signée (signature à clé publique) vérifiable hors ligne pour l'authenticité du badge. Limite : elle ne montre ni suspension ni révocation survenues après l'émission. À n'envisager que si la couverture réseau des postes de contrôle pose problème.</li>
+<li>Scanner : la page utilise la bibliothèque jsQR. <i>Je ne peux pas confirmer</i> la disponibilité de l'API native <code>BarcodeDetector</code> sur les téléphones visés ; garder jsQR en solution de repli et tester sur des téléphones Android d'entrée de gamme, en plein soleil, avec des cartes plastifiées (reflets).</li>
+<li>Taille et correction d'erreur du QR : conserver au moins 19 mm de côté et le niveau de correction d'erreur « M » ; un tampon ou une rayure sur le badge ne doit pas empêcher la lecture. À valider par tests d'impression réels.</li>
+</ul>
+
+<h3>4.11 Conformité : données personnelles en Côte d'Ivoire <span class="tag p0">P0</span><span class="tag src">SOURCÉ</span></h3>
+<ul>
+<li>Le cadre est la loi n° 2013-450 du 19 juin 2013 relative à la protection des données à caractère personnel<sup><a href="#r9">[9]</a></sup>, dont l'autorité de protection est l'ARTCI<sup><a href="#r11">[11]</a></sup>.</li>
+<li>L'ARTCI a rappelé que tout traitement de données à caractère personnel doit faire l'objet d'une déclaration préalable ou d'une autorisation<sup><a href="#r7">[7]</a></sup>. Un article de presse reprend l'article 5 de la loi : le traitement est soumis à une déclaration préalable<sup><a href="#r8">[8]</a></sup>.</li>
+<li>La loi et l'ARTCI font intervenir un « Correspondant à la protection des données » (articles 42 et 45 cités par l'ARTCI)<sup><a href="#r10">[10]</a></sup>.</li>
+<li>À prévoir : finalités écrites (identification et contrôle des chauffeurs de moto-taxi), liste des données collectées, durée de conservation, information et consentement ou autre base légale au moment de l'enrôlement, droits des personnes (accès, rectification…), cadre écrit de l'accès par la police et la gendarmerie (protocole ou convention). L'ARTCI rappelle aux jeunes que la loi leur reconnaît des droits sur leurs données<sup><a href="#r13">[13]</a></sup>.</li>
+<li>Les points exacts (déclaration ou autorisation, statut de la photo, durée de conservation, base légale de l'accès des forces de l'ordre) sont en section 8 : <b>je ne peux pas les confirmer</b>. À valider avec l'ARTCI ou un conseil juridique avant d'enrôler de vrais chauffeurs.</li>
+</ul>
+
+<h3>4.12 Exploitation <span class="tag p1">P1</span><span class="tag jug">JUGEMENT</span></h3>
+<ul>
+<li>Environnements séparés : un projet Firebase de test (avec données fictives) et un projet de production.</li>
+<li>Alertes sur les pics d'erreurs et de jetons inconnus ; sauvegardes planifiées de la base (méthode et fréquence à définir : je ne l'ai pas vérifié ici).</li>
+<li>Rotation et révocation : procédure écrite pour désactiver un agent, un admin ou un lot de badges.</li>
+<li>Aucun secret (clé de service) dans les pages HTML ni dans un dépôt public. La configuration Firebase côté navigateur n'est pas un secret, mais elle n'est protégée que par vos règles et App Check.</li>
+</ul>
+
+<h2 id="s5">5. Modèle de données proposé</h2>
+<table>
+<tr><th>Collection / document</th><th>Contenu</th><th>Accès</th></tr>
+<tr><td><code>drivers/{driverId}</code> (identifiant interne aléatoire)</td><td><code>badgeNumero</code> (affichage), nom, prénoms, téléphone, quartier, plaque, photo, <code>typeBadge</code>, <code>dateEmission</code>, <code>dateExpiration</code>, <code>permisNumero</code>, <code>permisExpiration</code>, <code>suspendu</code>, <code>creePar</code></td><td>Fonctions uniquement</td></tr>
+<tr><td><code>badgeTokens/{sha256(jeton)}</code></td><td><code>driverId</code>, <code>revoque</code>, <code>creeLe</code></td><td>Fonctions uniquement</td></tr>
+<tr><td><code>agents/{uid}</code></td><td>nom, corps, <code>actif</code>, <code>role</code></td><td>Fonctions uniquement</td></tr>
+<tr><td><code>agentCodes/{sha256(code)}</code></td><td><code>agentId</code>, <code>role</code>, <code>corps</code>, <code>actif</code>, <code>expireLe</code></td><td>Fonctions uniquement</td></tr>
+<tr><td><code>controles/{auto}</code></td><td>date serveur, <code>agentId</code>, rôle, <code>driverId</code>, statut</td><td>Écriture par fonctions ; lecture admin via fonction</td></tr>
+<tr><td><code>compteurs/badges</code></td><td><code>n</code> (numéro d'affichage suivant)</td><td>Fonctions uniquement</td></tr>
+</table>
+<p class="sub">Photo : tant que le volume reste modeste (quelques milliers de chauffeurs), une miniature compressée dans la fiche, renvoyée uniquement par la fonction, est acceptable ; au-delà, passer à Cloud Storage avec accès fermé. <span class="tag jug">JUGEMENT</span></p>
+
+<h2 id="s6">6. Extraits de code (non testés)</h2>
+
+<h3>6.1 <code>firestore.rules</code> : tout refuser aux clients</h3>
+<pre><code>rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Aucun accès direct depuis un navigateur ou une application.
+    // Seules les Cloud Functions (Admin SDK) lisent et écrivent.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}</code></pre>
+
+<h3>6.2 Fonction <code>verifyBadge</code> (Node.js, 2e génération)</h3>
+<pre><code>const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { initializeApp } = require("firebase-admin/app");
+const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const crypto = require("crypto");
+
+initializeApp();
+const db = getFirestore();
+const sha256 = (s) =&gt; crypto.createHash("sha256").update(s).digest("hex");
+const masque = (n) =&gt; (n ? "***" + String(n).slice(-3) : "");
+
+function statut(d, now) {
+  if (d.suspendu) return { code: "SUSPENDU", couleur: "rouge" };
+  const fin = d.dateExpiration ? new Date(d.dateExpiration) : null;
+  if (!fin || isNaN(fin)) return { code: "INCONNU", couleur: "gris" };
+  if (fin &lt; now) return { code: "EXPIRE", couleur: "rouge" };
+  return d.typeBadge === "permis"
+    ? { code: "VALIDE", couleur: "vert" }
+    : { code: "PROVISOIRE", couleur: "orange",
+        joursRestants: Math.ceil((fin - now) / 86400000) };
+}
+
+exports.verifyBadge = onCall(
+  { enforceAppCheck: true, region: "europe-west1", timeoutSeconds: 10 },
+  async (request) =&gt; {
+    const token = String(request.data?.token ?? "");
+    if (!/^[A-Za-z0-9_-]{22,64}$/.test(token))
+      throw new HttpsError("invalid-argument", "Jeton invalide.");
+
+    // 1) Rôle de l'appelant ("public" par défaut)
+    let role = "public", agentId = null;
+    const r = request.auth?.token?.role;
+    if (r === "agent" || r === "admin") {
+      const a = await db.collection("agents").doc(request.auth.uid).get();
+      if (a.exists &amp;&amp; a.data().actif === true) { role = r; agentId = request.auth.uid; }
+    }
+
+    // 2) TODO : limitation de débit par agentId / adresse IP
+
+    // 3) Recherche par empreinte du jeton
+    const t = await db.collection("badgeTokens").doc(sha256(token)).get();
+    if (!t.exists || t.data().revoque) {
+      await db.collection("controles").add({
+        date: FieldValue.serverTimestamp(), role, agentId, driverId: null, statut: "JETON_INCONNU" });
+      return { statut: { code: "INCONNU", couleur: "gris" } };
+    }
+    const snap = await db.collection("drivers").doc(t.data().driverId).get();
+    if (!snap.exists) return { statut: { code: "INCONNU", couleur: "gris" } };
+    const d = snap.data();
+    const st = statut(d, new Date());           // heure du serveur
+
+    // 4) Journal d'audit
+    await db.collection("controles").add({
+      date: FieldValue.serverTimestamp(), role, agentId, driverId: snap.id, statut: st.code });
+
+    // 5) Réponse minimisée selon le rôle
+    const base = { statut: st, prenoms: d.prenoms, photo: d.photoURL, badge: d.badgeNumero };
+    if (role === "public") return base;
+    const agent = { ...base, nom: d.nom, type: d.typeBadge, fin: d.dateExpiration,
+                    plaque: d.plaqueMoto, permis: masque(d.permisNumero) };
+    if (role === "agent") return agent;
+    return { ...agent, telephone: d.telephone, quartier: d.quartier };
+  }
+);</code></pre>
+
+<h3>6.3 Fonction <code>agentLogin</code> et revendications admin</h3>
+<pre><code>const { getAuth } = require("firebase-admin/auth");
+
+exports.agentLogin = onCall(
+  { enforceAppCheck: true, consumeAppCheckToken: true, region: "europe-west1" },
+  async (request) =&gt; {
+    const code = String(request.data?.code ?? "").trim();
+    if (code.length &lt; 10) throw new HttpsError("invalid-argument", "Code invalide.");
+    // TODO : compter les échecs par IP et bloquer temporairement
+
+    const snap = await db.collection("agentCodes").doc(sha256(code)).get();
+    const c = snap.exists ? snap.data() : null;
+    const expire = c?.expireLe?.toDate?.();
+    if (!c || c.actif !== true || (expire &amp;&amp; expire &lt; new Date()))
+      throw new HttpsError("permission-denied", "Code invalide ou désactivé.");
+
+    const customToken = await getAuth().createCustomToken(c.agentId,
+      { role: c.role, corps: c.corps });
+    return { customToken };            // le client appelle signInWithCustomToken()
+  }
+);
+
+// Script d'administration, exécuté en local avec l'Admin SDK (jamais dans le navigateur) :
+// await getAuth().setCustomUserClaims(uidAdmin, { role: "admin" });</code></pre>
+
+<h3>6.4 Côté page : lecture du jeton et appel de la fonction</h3>
+<pre><code>import { getFunctions, httpsCallable } from "firebase/functions";
+
+const params = new URLSearchParams(location.hash.slice(1));   // #t=JETON
+const token = params.get("t");
+history.replaceState(null, "", location.pathname);              // efface le jeton de l'adresse
+
+const verifyBadge = httpsCallable(getFunctions(app, "europe-west1"), "verifyBadge");
+const { data } = await verifyBadge({ token });
+// afficher data.statut.code / data.statut.couleur, puis les champs reçus</code></pre>
+
+<h3>6.5 Fichier <code>_headers</code> (exemple Netlify, à adapter à votre hébergeur)</h3>
+<pre><code>/*
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Permissions-Policy: camera=(self), microphone=(), geolocation=()
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://www.gstatic.com; connect-src 'self' https://*.googleapis.com https://*.cloudfunctions.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'</code></pre>
+<p class="sub">Seule la directive <code>camera=(self)</code> est appuyée par une source<sup><a href="#r5">[5]</a></sup>. La politique CSP est un point de départ non exhaustif : App Check et l'authentification ajoutent des domaines à autoriser. <i>Je ne peux pas confirmer la liste complète</i> ; testez avec la console du navigateur et ajustez.</p>
+
+<h2 id="s7">7. Plan de mise en œuvre et tests</h2>
+<table>
+<tr><th>Phase</th><th>Contenu</th><th>Condition de passage</th></tr>
+<tr><td><b>0. Immédiat</b></td><td>Ne charger <b>aucune vraie donnée</b> dans la version actuelle. Mode démonstration uniquement.</td><td>—</td></tr>
+<tr><td><b>1. Socle sécurisé</b></td><td>Projet Firebase de test ; règles « tout refuser » ; fonctions <code>verifyBadge</code>, <code>agentLogin</code>, <code>enrollDriver</code> ; jetons aléatoires ; App Check en surveillance.</td><td>Tous les tests §7.1 réussis</td></tr>
+<tr><td><b>2. Pages</b></td><td>Réécriture de la page de vérification, de l'enrôlement et du générateur de badge pour appeler les fonctions ; en-têtes ; bibliothèques figées.</td><td>Tests terrain §7.2</td></tr>
+<tr><td><b>3. Cadre juridique</b></td><td>Démarche auprès de l'ARTCI ; Correspondant ; information des chauffeurs ; protocole police/gendarmerie ; durées de conservation.</td><td>Validation écrite</td></tr>
+<tr><td><b>4. Pilote</b></td><td>Quelques dizaines de chauffeurs et un poste de contrôle ; mesure du temps de réponse et du taux d'échec de lecture.</td><td>Retours terrain</td></tr>
+<tr><td><b>5. Généralisation</b></td><td>Enrôlement de tous les chauffeurs ; App Check en application stricte ; alertes ; sauvegardes.</td><td>—</td></tr>
+</table>
+
+<h3>7.1 Tests de sécurité (phase 1)</h3>
+<ol>
+<li>Depuis la console du navigateur avec le SDK client, tenter de lire <code>drivers</code>, <code>agents</code>, <code>agentCodes</code> : tout doit être refusé.</li>
+<li>Appeler <code>verifyBadge</code> avec des jetons aléatoires en boucle : refus après un seuil, entrées « JETON_INCONNU » dans le journal.</li>
+<li>Appeler les fonctions sans jeton App Check (script externe) : rejet.</li>
+<li>Désactiver un agent : son prochain contrôle est refusé immédiatement.</li>
+<li>Modifier l'heure du téléphone : le statut affiché ne change pas.</li>
+<li>Badge suspendu, expiré, provisoire à J-1, provisoire à J+1, permis expiré : statuts attendus.</li>
+<li>Révoquer un jeton : l'ancien QR affiche « Badge inconnu » ; le nouveau fonctionne.</li>
+<li>Vérifier que la réponse « public » ne contient ni nom de famille, ni téléphone, ni quartier, ni plaque, ni permis (examiner la réponse réseau brute).</li>
+</ol>
+
+<h3>7.2 Tests de terrain (phase 2)</h3>
+<ol>
+<li>Lecture du QR sur 3 à 5 modèles de téléphones Android d'entrée de gamme, en plein soleil, de nuit, avec carte plastifiée neuve et usée.</li>
+<li>Réseau mobile faible ou coupé : message clair, pas de résultat périmé.</li>
+<li>Caméra refusée par l'agent : le chemin de secours (code court) fonctionne et reste limité en débit.</li>
+<li>Temps entre le scan et l'affichage du statut sur le réseau local réel (à mesurer, aucun objectif chiffré n'est garanti ici).</li>
+<li>Perte d'un téléphone d'agent : procédure de désactivation exécutée de bout en bout.</li>
+</ol>
+
+<h2 id="s8">8. Ce que je ne peux pas confirmer</h2>
+<div class="box warn">
+<ul>
+<li><b>Juridique.</b> Je ne peux pas confirmer si votre traitement relève d'une simple déclaration ou d'une autorisation préalable de l'ARTCI : les sources trouvées parlent de « déclaration préalable ou autorisation »<sup><a href="#r7">[7]</a></sup> sans trancher pour ce cas.</li>
+<li>Je ne peux pas confirmer la base légale qui permettrait à la police et à la gendarmerie d'accéder à ces données, ni les formalités éventuelles (texte réglementaire, convention).</li>
+<li>Je ne peux pas confirmer si la photo d'identité relève des données biométriques au sens de la loi. L'ARTCI a publié un communiqué sur l'usage de la biométrie pour le contrôle<sup><a href="#r14">[14]</a></sup>, dont je n'ai lu qu'un extrait.</li>
+<li>Je n'ai pas relu intégralement le texte de la loi<sup><a href="#r9">[9]</a></sup> ; je ne peux donc pas citer les durées de conservation, les sanctions précises ni le contenu exact des articles 42, 45 et 51 hors des extraits des sources citées.</li>
+<li><b>Technique.</b> Disponibilité de l'API <code>BarcodeDetector</code> sur les téléphones ciblés ; liste complète des domaines à autoriser dans la CSP avec App Check ; existence d'un mécanisme natif de limitation de débit pour les fonctions appelables ; durée de vie de la session Firebase obtenue après <code>signInWithCustomToken</code> (le jeton personnalisé expire après une heure<sup><a href="#r4">[4]</a></sup>, mais je n'ai pas vérifié le comportement de renouvellement de la session ensuite : à tester) ; méthode et fréquence des sauvegardes.</li>
+<li>Le contournement des règles Firestore par l'Admin SDK s'appuie sur une source secondaire<sup><a href="#r12">[12]</a></sup>.</li>
+<li>Aucun extrait de code de ce document n'a été exécuté. Aucune mesure de performance n'a été faite.</li>
+</ul>
+</div>
+
+<h2 id="s9">9. Sources</h2>
+<p class="sub">Consultées le 13/11/2026. Les pages de documentation Firebase existent en plusieurs langues et versions ; les liens ci-dessous pointent vers les versions en français ou en anglais lorsque disponibles.</p>
+<ol class="refs">
+<li id="r1">Firebase, « Enable App Check enforcement for Cloud Functions » : <a href="https://firebase.google.com/docs/app-check/cloud-functions">https://firebase.google.com/docs/app-check/cloud-functions</a></li>
+<li id="r2">Firebase, « Security Rules and Firebase Authentication » : <a href="https://firebase.google.com/docs/rules/rules-and-auth">https://firebase.google.com/docs/rules/rules-and-auth</a></li>
+<li id="r3">Firebase, « Control Access with Custom Claims and Security Rules » : <a href="https://firebase.google.com/docs/auth/admin/custom-claims">https://firebase.google.com/docs/auth/admin/custom-claims</a></li>
+<li id="r4">Firebase, « Create Custom Tokens » : <a href="https://firebase.google.com/docs/auth/admin/create-custom-tokens">https://firebase.google.com/docs/auth/admin/create-custom-tokens</a></li>
+<li id="r5">MDN, « MediaDevices: getUserMedia() method » : <a href="https://developer.mozilla.org/docs/Web/API/MediaDevices/getUserMedia">https://developer.mozilla.org/docs/Web/API/MediaDevices/getUserMedia</a></li>
+<li id="r6">OWASP, « Insecure Direct Object Reference Prevention Cheat Sheet » : <a href="https://cheatsheetseries.owasp.org/cheatsheets/Insecure_Direct_Object_Reference_Prevention_Cheat_Sheet.html">https://cheatsheetseries.owasp.org/cheatsheets/Insecure_Direct_Object_Reference_Prevention_Cheat_Sheet.html</a></li>
+<li id="r7">Cio Mag, « Côte d'Ivoire : ARTCI – Le traitement des données personnelles désormais soumis à une autorisation préalable » : <a href="https://cio-mag.com/cote-divoire-artci-le-traitement-des-donnees-personnelles-desormais-soumis-a-une-autorisation-prealable">https://cio-mag.com/cote-divoire-artci-le-traitement-des-donnees-personnelles-desormais-soumis-a-une-autorisation-prealable</a> (article de presse)</li>
+<li id="r8">Osiris, « Côte d'Ivoire : l'ARTCI met en garde » (cite l'article 5 de la loi) : <a href="https://osiris.sn/Cote-d-Ivoire-L-ARTCI-met-en-garde.html">https://osiris.sn/Cote-d-Ivoire-L-ARTCI-met-en-garde.html</a> (article de presse)</li>
+<li id="r9">Loi n° 2013-450 du 19 juin 2013 (Journal officiel, texte) : <a href="https://cms21.anac.ci/uploads/748534/LOI_2013-450.pdf">https://cms21.anac.ci/uploads/748534/LOI_2013-450.pdf</a> (non relu intégralement)</li>
+<li id="r10">Digital Mag, « L'ARTCI alerte les responsables de traitement et les correspondants » (20/02/2024) : <a href="https://digitalmag.ci/protection-des-donnees-a-caractere-personnel-lartci-alerte-les-responsables-de-traitement-et-les-correspondants/">https://digitalmag.ci/protection-des-donnees-a-caractere-personnel-lartci-alerte-les-responsables-de-traitement-et-les-correspondants/</a> (article de presse)</li>
+<li id="r11">DataGuidance, « Ivory Coast » (loi 2013-450 et ARTCI) : <a href="https://www.DataGuidance.com/jurisdiction/ivory-coast">https://www.DataGuidance.com/jurisdiction/ivory-coast</a></li>
+<li id="r12">Discussion technique citant la documentation Firestore sur le contournement des règles par les bibliothèques serveur (source secondaire) : <a href="https://kiwix.lema.org/stackoverflow.com_en_all_2023-11/questions/75438520/firestore-rules-not-working-at-all-with-functions">https://kiwix.lema.org/stackoverflow.com_en_all_2023-11/questions/75438520/firestore-rules-not-working-at-all-with-functions</a></li>
+<li id="r13">Fraternité Matin, « Protection des données à caractère personnel : l'ARTCI rappelle leurs droits et devoirs à des milliers de jeunes » : <a href="https://www.fratmat.info/article/2639677/economie/protection-des-donnees-a-caractere-personnel-lartci-rappelle-leurs-droits-et-devoirs-a-des-milliers-de-jeunes">https://www.fratmat.info/article/2639677/economie/protection-des-donnees-a-caractere-personnel-lartci-rappelle-leurs-droits-et-devoirs-a-des-milliers-de-jeunes</a> (article de presse)</li>
+<li id="r14">Osiris, « L'ARTCI rappelle les limites » (communiqué sur la biométrie, extrait lu) : <a href="https://www.osiris.sn/L-ARTCI-rappelle-les-limites.html">https://www.osiris.sn/L-ARTCI-rappelle-les-limites.html</a> (article de presse)</li>
+</ol>
+
+<footer>Ce document est un support technique, pas un avis juridique. Il décrit des recommandations à valider avant mise en production.</footer>
+</div>
+</body>
+</html>
