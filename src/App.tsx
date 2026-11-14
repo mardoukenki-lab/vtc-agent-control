@@ -1,34 +1,35 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
+  Copy,
   Eye,
   EyeOff,
+  FileText,
   History,
   KeyRound,
   LogOut,
   Moon,
-  QrCode,
   ScanLine,
   Shield,
   SlidersHorizontal,
   Sun,
+  X,
 } from 'lucide-react';
 import { AdminConsole } from './components/AdminConsole';
 import { OfflineBanner } from './components/OfflineBanner';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { QrScannerView } from './components/QrScannerView';
-import { TestBadgesPanel } from './components/TestBadgesPanel';
 import { VerificationResultCard } from './components/VerificationResultCard';
 import { useOnlineStatus } from './hooks/useOnlineStatus';
-import { api, loadStoredSession, saveStoredSession } from './lib/api';
-import type {
-  AgentSession,
-  ControlLogEntry,
-  TestBadgeSample,
-  VerifyResponse,
-} from './types';
+import {
+  api,
+  loadStoredSession,
+  saveStoredSession,
+  UnauthorizedError,
+} from './lib/api';
+import type { AgentSession, ControlLogEntry, VerifyResponse } from './types';
 
-type ActiveTab = 'control' | 'history' | 'test' | 'admin';
+type ActiveTab = 'control' | 'history' | 'admin';
 
 const INACTIVITY_TIMEOUT_MS = 15 * 60_000;
 
@@ -48,22 +49,31 @@ export default function App() {
   const [session, setSession] = useState<AgentSession | null>(() => loadStoredSession());
   const [activeTab, setActiveTab] = useState<ActiveTab>('control');
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+
+  // First-time Admin Bootstrap state
+  const [needsBootstrap, setNeedsBootstrap] = useState(false);
+  const [bootNom, setBootNom] = useState('');
+  const [bootCorps, setBootCorps] = useState('Autorité Municipale · Allô Dabou');
+  const [bootMatricule, setBootMatricule] = useState('');
+  const [bootLoading, setBootLoading] = useState(false);
+  const [bootError, setBootError] = useState<string | null>(null);
+  const [bootCreatedCode, setBootCreatedCode] = useState<string | null>(null);
 
   // Login form state
   const [agentCode, setAgentCode] = useState('');
   const [showCode, setShowCode] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
-  const [showDemoCodes, setShowDemoCodes] = useState(false);
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
 
   // Verification state
   const [isVerifying, setIsVerifying] = useState(false);
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [verifyResult, setVerifyResult] = useState<VerifyResponse | null>(null);
 
-  // Controls & Test Badges
+  // Controls
   const [controls, setControls] = useState<ControlLogEntry[]>([]);
-  const [testBadges, setTestBadges] = useState<TestBadgeSample[]>([]);
 
   const inactivityTimerRef = useRef<number | null>(null);
 
@@ -85,21 +95,38 @@ export default function App() {
     }
   }, [darkMode]);
 
-  const handleLogout = useCallback(() => {
-    saveStoredSession(null);
-    setSession(null);
-    setControls([]);
-    setVerifyResult(null);
-    if (activeTab === 'admin') {
-      setActiveTab('control');
-    }
-  }, [activeTab]);
+  const handleLogout = useCallback(
+    (reason?: string) => {
+      const currentToken = session?.token;
+      if (currentToken) {
+        api.logout(currentToken);
+      }
+      saveStoredSession(null);
+      setSession(null);
+      setControls([]);
+      setVerifyResult(null);
+      if (reason) setSessionNotice(reason);
+      if (activeTab === 'admin') {
+        setActiveTab('control');
+      }
+    },
+    [activeTab, session?.token]
+  );
 
-  // Verify active server session on mount
+  // Check bootstrap status & verify active server session on mount
+  useEffect(() => {
+    api
+      .getSetupStatus()
+      .then((res) => setNeedsBootstrap(res.needsBootstrap))
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     if (!session) return;
-    api.me(session.token).catch(() => {
-      handleLogout();
+    api.me(session.token).catch((err) => {
+      if (err instanceof UnauthorizedError) {
+        handleLogout('Session expirée ou révoquée. Veuillez vous reconnecter.');
+      }
     });
   }, [session, handleLogout]);
 
@@ -111,7 +138,7 @@ export default function App() {
         window.clearTimeout(inactivityTimerRef.current);
       }
       inactivityTimerRef.current = window.setTimeout(() => {
-        handleLogout();
+        handleLogout('Session verrouillée après 15 minutes d’inactivité.');
       }, INACTIVITY_TIMEOUT_MS);
     };
 
@@ -131,21 +158,16 @@ export default function App() {
     try {
       const res = await api.getControls(session.token);
       setControls(res.controls);
-    } catch {
-      // ignore transient error
+    } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        handleLogout('Session expirée ou révoquée. Veuillez vous reconnecter.');
+      }
     }
-  }, [session, isOnline]);
+  }, [session, isOnline, handleLogout]);
 
   useEffect(() => {
     refreshControls();
   }, [refreshControls]);
-
-  useEffect(() => {
-    api
-      .getTestBadges()
-      .then((res) => setTestBadges(res.badges))
-      .catch(() => {});
-  }, []);
 
   const runVerification = useCallback(
     async (target: { token?: string; manualCode?: string }) => {
@@ -159,6 +181,10 @@ export default function App() {
           refreshControls();
         }
       } catch (err) {
+        if (err instanceof UnauthorizedError) {
+          handleLogout('Session expirée. Veuillez vous reconnecter.');
+          return;
+        }
         setVerifyError(
           err instanceof Error ? err.message : 'Vérification impossible. Vérifiez le réseau.'
         );
@@ -166,10 +192,10 @@ export default function App() {
         setIsVerifying(false);
       }
     },
-    [session, refreshControls]
+    [session, refreshControls, handleLogout]
   );
 
-  // Extract QR token from #t=... fragment (or ?v=...) on initial load and scrub URL immediately
+  // Extract QR token ONLY from #t= or ?t= (16-64 chars) on load and scrub URL immediately
   useEffect(() => {
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
     const searchParams = new URLSearchParams(window.location.search);
@@ -177,20 +203,41 @@ export default function App() {
       hashParams.get('t') ||
       hashParams.get('token') ||
       searchParams.get('t') ||
-      searchParams.get('v');
+      searchParams.get('token');
     if (token) {
       window.history.replaceState(null, '', window.location.pathname);
       if (/^[A-Za-z0-9_-]{16,64}$/.test(token)) {
         runVerification({ token });
       } else {
-        runVerification({ manualCode: token.toUpperCase() });
+        setVerifyError('Jeton QR invalide dans le lien.');
       }
     }
   }, [runVerification]);
 
+  const handleBootstrapSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBootError(null);
+    setBootLoading(true);
+    try {
+      const res = await api.bootstrapAdmin({
+        nom: bootNom,
+        corps: bootCorps,
+        matricule: bootMatricule,
+      });
+      setBootCreatedCode(res.rawCode);
+      setNeedsBootstrap(false);
+      setAgentCode(res.rawCode);
+    } catch (err) {
+      setBootError(err instanceof Error ? err.message : 'Initialisation impossible.');
+    } finally {
+      setBootLoading(false);
+    }
+  };
+
   const submitLogin = async (codeToUse: string) => {
     const trimmed = codeToUse.trim().toUpperCase();
     setLoginError(null);
+    setSessionNotice(null);
     if (!trimmed) {
       setLoginError('Saisissez votre code personnel.');
       return;
@@ -201,6 +248,7 @@ export default function App() {
       saveStoredSession(newSession);
       setSession(newSession);
       setAgentCode('');
+      setBootCreatedCode(null);
       setShowLoginModal(false);
       setVerifyResult(null);
     } catch (err) {
@@ -229,7 +277,7 @@ export default function App() {
       <OfflineBanner />
 
       {/* TOP BAR CONTRACT: 3 clean zones (Brand wordmark | Single-line nav | Primary actions) */}
-      <header className="sticky top-0 z-30 border-b border-slate-200 dark:border-slate-800/90 bg-white/90 dark:bg-[#0B1120]/90 backdrop-blur-md pt-safe">
+      <header className="sticky top-0 z-30 border-b border-slate-200 dark:border-slate-800/90 bg-white/90 dark:bg-[#0B1120]/90 backdrop-blur-md pt-safe print:hidden">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 sm:gap-8 px-4 sm:px-6">
           {/* Zone 1: Brand Wordmark (single text element) */}
           <button
@@ -270,17 +318,6 @@ export default function App() {
             >
               Historique
             </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('test')}
-              className={`whitespace-nowrap shrink-0 py-1 transition-colors cursor-pointer ${
-                activeTab === 'test'
-                  ? 'text-slate-950 dark:text-amber-400 font-semibold underline underline-offset-8 decoration-2'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white'
-              }`}
-            >
-              Badges test
-            </button>
             {session?.role === 'admin' && (
               <button
                 type="button"
@@ -313,7 +350,7 @@ export default function App() {
             {session ? (
               <button
                 type="button"
-                onClick={handleLogout}
+                onClick={() => handleLogout()}
                 className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 text-xs font-semibold text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <LogOut className="h-3.5 w-3.5 text-amber-500" />
@@ -335,11 +372,108 @@ export default function App() {
 
       {/* MAIN CONTENT */}
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 sm:px-6 py-5 pb-24 md:pb-10">
+        {sessionNotice && (
+          <div
+            role="status"
+            className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-orange-400/50 bg-orange-50 dark:bg-orange-950/40 px-4 py-3 text-xs font-semibold text-orange-800 dark:text-orange-200"
+          >
+            <span>{sessionNotice}</span>
+            <button
+              type="button"
+              onClick={() => setSessionNotice(null)}
+              className="p-1 cursor-pointer"
+              aria-label="Fermer"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* LEFT / PRIMARY WORKSPACE */}
           <section className="lg:col-span-7 space-y-4">
+            {/* Initial Bootstrap when zero admins exist */}
+            {needsBootstrap && !session && (
+              <div className="rounded-2xl border border-amber-400/60 bg-white dark:bg-slate-900 p-5 space-y-3">
+                <div>
+                  <h1 className="font-display text-2xl font-extrabold text-slate-900 dark:text-white">
+                    Initialisation du premier administrateur
+                  </h1>
+                  <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                    Aucun compte administrateur n'existe encore. Créez le compte principal pour générer votre code d'accès personnel (affiché une seule fois).
+                  </p>
+                </div>
+                <form onSubmit={handleBootstrapSubmit} className="space-y-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <input
+                      required
+                      value={bootNom}
+                      onChange={(e) => setBootNom(e.target.value)}
+                      placeholder="Nom & grade de l'administrateur *"
+                      className="min-h-[44px] rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 text-sm text-slate-900 dark:text-white"
+                    />
+                    <input
+                      required
+                      value={bootMatricule}
+                      onChange={(e) => setBootMatricule(e.target.value)}
+                      placeholder="Matricule (ex: ADM-DB-001) *"
+                      className="min-h-[44px] rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 font-mono text-sm text-slate-900 dark:text-white"
+                    />
+                  </div>
+                  <input
+                    required
+                    value={bootCorps}
+                    onChange={(e) => setBootCorps(e.target.value)}
+                    placeholder="Autorité / Service *"
+                    className="min-h-[44px] w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 text-sm text-slate-900 dark:text-white"
+                  />
+                  {bootError && (
+                    <p role="alert" className="text-xs font-semibold text-red-600 dark:text-red-400">
+                      {bootError}
+                    </p>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={bootLoading}
+                    className="min-h-[46px] w-full rounded-xl bg-amber-400 text-sm font-bold text-slate-950 hover:bg-amber-300 disabled:opacity-50 cursor-pointer"
+                  >
+                    {bootLoading ? 'Création…' : 'Initialiser le compte administrateur'}
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {/* One-time generated bootstrap code display */}
+            {bootCreatedCode && !session && (
+              <div className="rounded-2xl border border-emerald-500/60 bg-emerald-50 dark:bg-emerald-950/40 p-5 space-y-3">
+                <div className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                  Code administrateur généré (notez-le maintenant, il ne sera plus affiché) :
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white dark:bg-slate-950 border border-emerald-500/40 px-4 py-3">
+                  <span className="font-mono text-base sm:text-lg font-bold tracking-wider text-slate-900 dark:text-white">
+                    {bootCreatedCode}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => navigator.clipboard?.writeText(bootCreatedCode)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    <span>Copier</span>
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => submitLogin(bootCreatedCode)}
+                  className="min-h-[46px] w-full rounded-xl bg-emerald-600 text-sm font-bold text-white hover:bg-emerald-500 cursor-pointer"
+                >
+                  Ouvrir la session administrateur
+                </button>
+              </div>
+            )}
+
             {/* Agent Authentication Banner when not signed in on Control tab */}
-            {!session && activeTab === 'control' && !verifyResult && (
+            {!needsBootstrap && !session && activeTab === 'control' && !verifyResult && (
               <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5">
                 <div className="flex items-start justify-between gap-4 mb-4">
                   <div>
@@ -368,7 +502,7 @@ export default function App() {
                           type={showCode ? 'text' : 'password'}
                           value={agentCode}
                           onChange={(e) => setAgentCode(e.target.value)}
-                          placeholder="Ex : POL-2026-8491"
+                          placeholder="Saisissez votre code personnel"
                           autoComplete="off"
                           className="min-h-[48px] w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 pl-3.5 pr-11 font-mono text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:border-amber-400 focus:outline-none"
                         />
@@ -397,60 +531,6 @@ export default function App() {
                     </p>
                   )}
                 </form>
-
-                {/* Collapsible Demo Credentials Helper */}
-                <div className="mt-4 border-t border-slate-100 dark:border-slate-800 pt-3">
-                  <button
-                    type="button"
-                    onClick={() => setShowDemoCodes((v) => !v)}
-                    className="text-xs font-semibold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer"
-                  >
-                    {showDemoCodes
-                      ? 'Masquer les codes de démonstration'
-                      : 'Afficher les codes de démonstration (Police · Gendarmerie · Admin)'}
-                  </button>
-
-                  {showDemoCodes && (
-                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => submitLogin('POL-2026-8491')}
-                        className="min-h-[44px] rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-2.5 text-left hover:border-amber-400 transition-colors cursor-pointer"
-                      >
-                        <div className="text-xs font-bold text-slate-900 dark:text-white">
-                          Police Nationale
-                        </div>
-                        <div className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
-                          POL-2026-8491
-                        </div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => submitLogin('GEN-2026-3107')}
-                        className="min-h-[44px] rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-2.5 text-left hover:border-amber-400 transition-colors cursor-pointer"
-                      >
-                        <div className="text-xs font-bold text-slate-900 dark:text-white">
-                          Gendarmerie
-                        </div>
-                        <div className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
-                          GEN-2026-3107
-                        </div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => submitLogin('ADM-2026-9940')}
-                        className="min-h-[44px] rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-2.5 text-left hover:border-amber-400 transition-colors cursor-pointer"
-                      >
-                        <div className="text-xs font-bold text-slate-900 dark:text-white">
-                          Administration
-                        </div>
-                        <div className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
-                          ADM-2026-9940
-                        </div>
-                      </button>
-                    </div>
-                  )}
-                </div>
               </div>
             )}
 
@@ -531,7 +611,7 @@ export default function App() {
                           <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-mono">
                             <span>{c.badgeNumero}</span>
                             <span aria-hidden="true">·</span>
-                            <span>{c.method === 'qr' ? 'QR' : 'Manuel'}</span>
+                            <span>{c.method === 'qr' ? 'QR' : c.method === 'manual' ? 'Manuel' : 'Admin'}</span>
                             <span aria-hidden="true">·</span>
                             <span className="tabular-nums">{formatTime(c.date)}</span>
                           </div>
@@ -546,24 +626,19 @@ export default function App() {
               </div>
             )}
 
-            {activeTab === 'test' && (
-              <TestBadgesPanel
-                badges={testBadges}
-                onSimulateScan={(token) => runVerification({ token })}
-              />
-            )}
-
             {activeTab === 'admin' && session?.role === 'admin' && (
               <AdminConsole
                 authToken={session.token}
                 onControlsUpdated={refreshControls}
+                onSessionExpired={() =>
+                  handleLogout('Session administrateur expirée. Veuillez vous reconnecter.')
+                }
               />
             )}
           </section>
 
-          {/* RIGHT / SECONDARY COMMAND COLUMN (Visible on Desktop lg+, compact below on mobile when needed) */}
-          <aside className="lg:col-span-5 space-y-4">
-            {/* Active Agent Identity Summary */}
+          {/* RIGHT / SECONDARY COMMAND COLUMN */}
+          <aside className="lg:col-span-5 space-y-4 print:hidden">
             {session && (
               <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 sm:p-5">
                 <div className="flex items-center justify-between gap-3">
@@ -582,7 +657,7 @@ export default function App() {
                   </div>
                   <button
                     type="button"
-                    onClick={handleLogout}
+                    onClick={() => handleLogout()}
                     className="min-h-[44px] rounded-xl border border-slate-300 dark:border-slate-700 px-3.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap shrink-0 cursor-pointer"
                   >
                     Verrouiller
@@ -591,7 +666,6 @@ export default function App() {
               </div>
             )}
 
-            {/* Quick Recent Controls on Desktop */}
             {session && activeTab !== 'history' && (
               <div className="hidden lg:block rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-5">
                 <div className="flex items-center justify-between gap-2 mb-3">
@@ -635,59 +709,39 @@ export default function App() {
               </div>
             )}
 
-            {/* Quick Test Badges Launcher on Desktop */}
-            {activeTab !== 'test' && testBadges.length > 0 && (
-              <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 sm:p-5">
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <div>
-                    <h3 className="font-display text-lg font-bold text-slate-900 dark:text-white">
-                      Test rapide de badges
-                    </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                      Simuler un scan QR avec jeton cryptographique
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('test')}
-                    className="text-xs font-semibold text-amber-600 dark:text-amber-400 hover:underline whitespace-nowrap cursor-pointer"
-                  >
-                    Voir les QR
-                  </button>
+            {/* Compliance & Legal Notice Card */}
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/90 p-4 sm:p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-display text-lg font-bold text-slate-900 dark:text-white">
+                    Cadre légal & confidentialité
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                    Contrôle des conducteurs Allô Dabou. Aucune donnée personnelle n'est conservée hors ligne sur les terminaux de patrouille.
+                  </p>
                 </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  {testBadges.map((b) => (
-                    <button
-                      key={b.badgeNumero}
-                      type="button"
-                      disabled={!isOnline || isVerifying}
-                      onClick={() => runVerification({ token: b.qrToken })}
-                      className="min-h-[52px] rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 p-2.5 text-left hover:border-amber-400 transition-colors disabled:opacity-50 cursor-pointer"
-                    >
-                      <div className="font-mono text-[11px] font-bold text-slate-500 dark:text-slate-400">
-                        {b.badgeNumero}
-                      </div>
-                      <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                        {b.expectedLabel}
-                      </div>
-                    </button>
-                  ))}
-                </div>
+                <FileText className="h-5 w-5 text-slate-400 shrink-0" />
               </div>
-            )}
+              <button
+                type="button"
+                onClick={() => setShowPrivacyModal(true)}
+                className="mt-3 text-xs font-semibold text-amber-600 dark:text-amber-400 hover:underline cursor-pointer"
+              >
+                Consulter la notice d'information (Loi n° 2013-450)
+              </button>
+            </div>
           </aside>
         </div>
       </main>
 
-      {/* MOBILE BOTTOM TAB BAR (Thumb-zone navigation, compact height <= 15% cap) */}
+      {/* MOBILE BOTTOM TAB BAR */}
       <nav
         aria-label="Navigation mobile"
-        className="md:hidden fixed bottom-0 left-0 right-0 z-40 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-[#0B1120]/95 backdrop-blur-md pb-safe"
+        className="md:hidden fixed bottom-0 left-0 right-0 z-40 border-t border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-[#0B1120]/95 backdrop-blur-md pb-safe print:hidden"
       >
         <div
           className={`grid h-14 items-center ${
-            session?.role === 'admin' ? 'grid-cols-4' : 'grid-cols-3'
+            session?.role === 'admin' ? 'grid-cols-3' : 'grid-cols-2'
           }`}
         >
           <button
@@ -716,19 +770,6 @@ export default function App() {
             <span className="text-[10px] tracking-tight">Historique</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('test')}
-            className={`flex h-full flex-col items-center justify-center gap-0.5 cursor-pointer ${
-              activeTab === 'test'
-                ? 'text-amber-500 font-bold'
-                : 'text-slate-500 dark:text-slate-400'
-            }`}
-          >
-            <QrCode className="h-5 w-5" />
-            <span className="text-[10px] tracking-tight">Badges</span>
-          </button>
-
           {session?.role === 'admin' && (
             <button
               type="button"
@@ -746,7 +787,7 @@ export default function App() {
         </div>
       </nav>
 
-      {/* AGENT LOGIN MODAL (Triggered from header or public view) */}
+      {/* AGENT LOGIN MODAL */}
       {showLoginModal && (
         <div
           className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/65 backdrop-blur-sm p-4"
@@ -781,7 +822,7 @@ export default function App() {
                 type={showCode ? 'text' : 'password'}
                 value={agentCode}
                 onChange={(e) => setAgentCode(e.target.value)}
-                placeholder="Code personnel (ex: POL-2026-8491)"
+                placeholder="Saisissez votre code personnel"
                 autoComplete="off"
                 autoFocus
                 className="min-h-[48px] w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3.5 font-mono text-sm text-slate-900 dark:text-white"
@@ -799,33 +840,56 @@ export default function App() {
                 {loginLoading ? 'Vérification…' : 'Accéder au contrôle'}
               </button>
             </form>
+          </div>
+        </div>
+      )}
 
-            <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 grid grid-cols-3 gap-2">
+      {/* PRIVACY / COMPLIANCE NOTICE MODAL */}
+      {showPrivacyModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/65 backdrop-blur-sm p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="privacy-modal-title"
+        >
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-2xl space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <h2
+                id="privacy-modal-title"
+                className="font-display text-2xl font-bold text-slate-900 dark:text-white"
+              >
+                Protection des données (Loi n° 2013-450)
+              </h2>
               <button
                 type="button"
-                onClick={() => submitLogin('POL-2026-8491')}
-                className="min-h-[44px] rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-2 text-center hover:border-amber-400 cursor-pointer"
+                onClick={() => setShowPrivacyModal(false)}
+                className="p-2 text-slate-500 cursor-pointer"
+                aria-label="Fermer"
               >
-                <div className="text-[11px] font-bold text-slate-900 dark:text-white">Police</div>
-                <div className="font-mono text-[10px] text-slate-500">POL-2026…</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => submitLogin('GEN-2026-3107')}
-                className="min-h-[44px] rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-2 text-center hover:border-amber-400 cursor-pointer"
-              >
-                <div className="text-[11px] font-bold text-slate-900 dark:text-white">Gendarme</div>
-                <div className="font-mono text-[10px] text-slate-500">GEN-2026…</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => submitLogin('ADM-2026-9940')}
-                className="min-h-[44px] rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-2 text-center hover:border-amber-400 cursor-pointer"
-              >
-                <div className="text-[11px] font-bold text-slate-900 dark:text-white">Admin</div>
-                <div className="font-mono text-[10px] text-slate-500">ADM-2026…</div>
+                <X className="h-4 w-4" />
               </button>
             </div>
+            <div className="space-y-2 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              <p>
+                <strong>Finalité :</strong> identification et vérification en temps réel de la validité des badges et permis des conducteurs de moto-taxis par la Police Nationale, la Gendarmerie Nationale et les autorités municipales habilitées.
+              </p>
+              <p>
+                <strong>Minimisation des accès :</strong> le scan public n'affiche que le statut, le prénom, la photo et le n° de badge. Les agents habilités accèdent uniquement aux données nécessaires au contrôle routier.
+              </p>
+              <p>
+                <strong>Traçabilité & conservation :</strong> chaque contrôle et action administrative est horodaté côté serveur sans géolocalisation GPS. Les journaux peuvent être exportés et purgés au-delà de la durée de conservation définie (90 jours par défaut).
+              </p>
+              <p>
+                <strong>Droits des personnes :</strong> les conducteurs peuvent demander l'accès, la rectification ou l'actualisation de leurs données auprès du responsable de traitement Allô Dabou / Correspondant ARTCI.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowPrivacyModal(false)}
+              className="min-h-[44px] w-full rounded-xl bg-slate-900 dark:bg-amber-400 text-xs font-bold text-white dark:text-slate-950 cursor-pointer"
+            >
+              Fermer
+            </button>
           </div>
         </div>
       )}

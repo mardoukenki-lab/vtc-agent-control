@@ -58,6 +58,7 @@ export interface AgentSession {
 export interface ControlLogEntry {
   id: string;
   date: string;
+  eventType: 'CONTROLE' | 'ADMIN_ACTION';
   role: CallerRole;
   agentId: string | null;
   agentNom: string;
@@ -65,19 +66,10 @@ export interface ControlLogEntry {
   driverId: string | null;
   badgeNumero: string;
   driverName: string;
-  statutCode: StatusCode | 'JETON_INCONNU';
+  statutCode: StatusCode | 'JETON_INCONNU' | string;
   tone: StatusTone;
-  method: 'qr' | 'manual';
-}
-
-export interface TestBadgeSample {
-  badgeNumero: string;
-  shortCode: string;
-  qrToken: string;
-  driverName: string;
-  expectedLabel: string;
-  tone: StatusTone;
-  typeBadge: 'permis' | 'provisoire';
+  method: 'qr' | 'manual' | 'admin';
+  detail?: string;
 }
 
 export interface AdminDriverRecord {
