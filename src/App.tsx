@@ -53,9 +53,11 @@ export default function App() {
 
   // First-time Admin Bootstrap state
   const [needsBootstrap, setNeedsBootstrap] = useState(false);
+  const [requiresBootstrapToken, setRequiresBootstrapToken] = useState(false);
   const [bootNom, setBootNom] = useState('');
   const [bootCorps, setBootCorps] = useState('Autorité Municipale · Allô Dabou');
   const [bootMatricule, setBootMatricule] = useState('');
+  const [bootToken, setBootToken] = useState('');
   const [bootLoading, setBootLoading] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
   const [bootCreatedCode, setBootCreatedCode] = useState<string | null>(null);
@@ -117,7 +119,10 @@ export default function App() {
   useEffect(() => {
     api
       .getSetupStatus()
-      .then((res) => setNeedsBootstrap(res.needsBootstrap))
+      .then((res) => {
+        setNeedsBootstrap(res.needsBootstrap);
+        setRequiresBootstrapToken(Boolean(res.requiresBootstrapToken));
+      })
       .catch(() => {});
   }, []);
 
@@ -223,9 +228,11 @@ export default function App() {
         nom: bootNom,
         corps: bootCorps,
         matricule: bootMatricule,
+        bootstrapToken: bootToken.trim() || undefined,
       });
       setBootCreatedCode(res.rawCode);
       setNeedsBootstrap(false);
+      setBootToken('');
       setAgentCode(res.rawCode);
     } catch (err) {
       setBootError(err instanceof Error ? err.message : 'Initialisation impossible.');
@@ -427,6 +434,17 @@ export default function App() {
                     placeholder="Autorité / Service *"
                     className="min-h-[44px] w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 text-sm text-slate-900 dark:text-white"
                   />
+                  {requiresBootstrapToken && (
+                    <input
+                      required
+                      type="password"
+                      autoComplete="off"
+                      value={bootToken}
+                      onChange={(e) => setBootToken(e.target.value)}
+                      placeholder="Jeton d'amorçage serveur (BOOTSTRAP_TOKEN) *"
+                      className="min-h-[44px] w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 font-mono text-sm text-slate-900 dark:text-white"
+                    />
+                  )}
                   {bootError && (
                     <p role="alert" className="text-xs font-semibold text-red-600 dark:text-red-400">
                       {bootError}

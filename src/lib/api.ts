@@ -89,9 +89,15 @@ export function extractQrTarget(raw: string): { token?: string; manualCode?: str
 }
 
 export const api = {
-  getSetupStatus: () => request<{ needsBootstrap: boolean }>('/api/setup/status'),
+  getSetupStatus: () =>
+    request<{ needsBootstrap: boolean; requiresBootstrapToken: boolean }>('/api/setup/status'),
 
-  bootstrapAdmin: (payload: { nom: string; corps: string; matricule: string }) =>
+  bootstrapAdmin: (payload: {
+    nom: string;
+    corps: string;
+    matricule: string;
+    bootstrapToken?: string;
+  }) =>
     request<{ agent: AdminAgentRecord; rawCode: string }>('/api/setup/bootstrap', {
       method: 'POST',
       body: JSON.stringify(payload),
